@@ -6,19 +6,30 @@ import SwiftUI
 private let sampleCode = """
 import Foundation
 
-struct User {
-    let name: String
+struct UserFormatter {
+    let prefix: String
+
+    func render(_ user: String) -> String {
+        "\\(prefix)-\\(user)"
+    }
 }
 
-func title(for user: User) -> String {
-    user.
-}
+let title = ["Freewind", "LSP", "Swift"]
+    .map(UserFormatter(prefix: "user").render)
+    .filter { $0.contains("i") }
+    .joined(separator: " / ")
+    .lowercased()
 
-print(title(for: User(name: "Freewind")))
+print(title)
 """
 
 @main
 struct STTextViewSourceKitLSPDemoApp: App {
+    init() {
+        NSApplication.shared.setActivationPolicy(.regular)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -52,6 +63,11 @@ private struct ContentView: View {
                     duplicateCurrentLine()
                 }
                 .keyboardShortcut("d", modifiers: [.command])
+
+                Button("扩选父节点 (⌘E)") {
+                    expandSelection()
+                }
+                .keyboardShortcut("e", modifiers: [.command])
 
                 Text(lspClient.status)
                     .foregroundStyle(.secondary)
@@ -118,6 +134,16 @@ private struct ContentView: View {
         text = SwiftSyntaxHighlighter.highlight(result.text)
         selection = result.selection
         lspClient.updateDocument(text: result.text)
+    }
+
+    private func expandSelection() {
+        let currentSelection = selection ?? NSRange(location: 0, length: 0)
+        lspClient.requestSelectionExpansion(text: plainText, selection: currentSelection) { expandedSelection in
+            guard let expandedSelection else {
+                return
+            }
+            selection = expandedSelection
+        }
     }
 }
 
@@ -269,6 +295,43 @@ private final class SourceKitLSPClient: ObservableObject, @unchecked Sendable {
         }
     }
 
+    func requestSelectionExpansion(
+        text: String,
+        selection: NSRange,
+        handler: @escaping @MainActor @Sendable (NSRange?) -> Void
+    ) {
+        queue.async {
+            guard let fileURL = self.fileURL else {
+                Task { @MainActor in
+                    self.status = "LSP 尚未就绪"
+                    handler(nil)
+                }
+                return
+            }
+
+            let position = Self.makeSelectionPosition(in: text, selection: selection)
+            self.sendRequest(
+                method: "textDocument/selectionRange",
+                params: [
+                    "textDocument": ["uri": fileURL.absoluteString],
+                    "positions": [
+                        [
+                            "line": position.line,
+                            "character": position.character,
+                        ],
+                    ],
+                ]
+            ) { result in
+                let ranges = Self.extractSelectionRanges(result, text: text)
+                let nextSelection = Self.nextSelectionRange(from: ranges, current: selection, text: text)
+                Task { @MainActor in
+                    self.status = nextSelection == nil ? "无更大 LSP 节点" : "已扩选到更大 LSP 节点"
+                    handler(nextSelection)
+                }
+            }
+        }
+    }
+
     func stop() {
         queue.sync {
             handlers.removeAll()
@@ -301,9 +364,12 @@ private final class SourceKitLSPClient: ObservableObject, @unchecked Sendable {
                 guard !data.isEmpty else {
                     return
                 }
-                self?.queue.async {
-                    self?.buffer.append(data)
-                    self?.drainBuffer()
+                guard let self else {
+                    return
+                }
+                self.queue.async {
+                    self.buffer.append(data)
+                    self.drainBuffer()
                 }
             }
 
@@ -556,5 +622,105 @@ private final class SourceKitLSPClient: ObservableObject, @unchecked Sendable {
         }
 
         return []
+    }
+
+    private static func makeSelectionPosition(in text: String, selection: NSRange) -> (line: Int, character: Int) {
+        let nsText = text as NSString
+        let location = min(max(selection.location, 0), nsText.length)
+        let prefix = nsText.substring(to: location) as NSString
+        let line = prefix.components(separatedBy: "\n").count - 1
+        let lastNewlineRange = prefix.range(of: "\n", options: .backwards)
+        let lineStart = lastNewlineRange.location == NSNotFound ? 0 : lastNewlineRange.location + 1
+        return (line, location - lineStart)
+    }
+
+    private static func extractSelectionRanges(_ result: Any?, text: String) -> [NSRange] {
+        let items = result as? [[String: Any]] ?? []
+        guard let firstItem = items.first else {
+            return []
+        }
+
+        var ranges: [NSRange] = []
+        var cursor: [String: Any]? = firstItem
+
+        while let current = cursor {
+            if let range = current["range"] as? [String: Any],
+               let nsRange = selectionNSRange(from: range, text: text)
+            {
+                ranges.append(nsRange)
+            }
+            cursor = current["parent"] as? [String: Any]
+        }
+
+        return uniqueRanges(ranges)
+    }
+
+    private static func selectionNSRange(from range: [String: Any], text: String) -> NSRange? {
+        guard let start = range["start"] as? [String: Any],
+              let end = range["end"] as? [String: Any],
+              let startLine = start["line"] as? Int,
+              let startCharacter = start["character"] as? Int,
+              let endLine = end["line"] as? Int,
+              let endCharacter = end["character"] as? Int
+        else {
+            return nil
+        }
+
+        let startOffset = utf16Offset(in: text, line: startLine, character: startCharacter)
+        let endOffset = utf16Offset(in: text, line: endLine, character: endCharacter)
+        return NSRange(location: startOffset, length: max(endOffset - startOffset, 0))
+    }
+
+    private static func utf16Offset(in text: String, line: Int, character: Int) -> Int {
+        let nsText = text as NSString
+        var currentLine = 0
+        var location = 0
+
+        while currentLine < line, location < nsText.length {
+            let lineRange = nsText.lineRange(for: NSRange(location: location, length: 0))
+            if lineRange.upperBound <= location {
+                break
+            }
+            location = lineRange.upperBound
+            currentLine += 1
+        }
+
+        let targetLineRange = nsText.lineRange(for: NSRange(location: min(location, nsText.length), length: 0))
+        let lineEnd = min(targetLineRange.upperBound, nsText.length)
+        return min(location + character, lineEnd)
+    }
+
+    private static func nextSelectionRange(from ranges: [NSRange], current: NSRange, text: String) -> NSRange? {
+        let clampedCurrent = clamp(current, to: text)
+        let currentUpperBound = clampedCurrent.location + clampedCurrent.length
+        let sortedRanges = ranges
+            .filter { $0.location <= clampedCurrent.location && $0.location + $0.length >= currentUpperBound }
+            .sorted {
+                if $0.length == $1.length {
+                    return $0.location < $1.location
+                }
+                return $0.length < $1.length
+            }
+
+        if let exactIndex = sortedRanges.firstIndex(where: { NSEqualRanges($0, clampedCurrent) }) {
+            return sortedRanges.dropFirst(exactIndex + 1).first
+        }
+
+        return sortedRanges.first(where: { !NSEqualRanges($0, clampedCurrent) })
+    }
+}
+
+private func clamp(_ range: NSRange, to text: String) -> NSRange {
+    let length = (text as NSString).length
+    let location = min(max(range.location, 0), length)
+    let upperBound = min(max(range.location + range.length, location), length)
+    return NSRange(location: location, length: upperBound - location)
+}
+
+private func uniqueRanges(_ ranges: [NSRange]) -> [NSRange] {
+    var seen = Set<String>()
+    return ranges.filter { range in
+        let key = "\(range.location)-\(range.length)"
+        return seen.insert(key).inserted
     }
 }
