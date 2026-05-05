@@ -3,7 +3,27 @@ import Foundation
 import STTextViewSwiftUI
 import SwiftUI
 
-private let sampleCode = """
+private enum CodeSampleKind: String, CaseIterable, Identifiable {
+    case swift = "Swift"
+    case javascript = "JavaScript"
+
+    var id: String { rawValue }
+
+    var sampleCode: String {
+        switch self {
+        case .swift:
+            swiftSampleCode
+        case .javascript:
+            javaScriptSampleCode
+        }
+    }
+
+    var supportsSourceKit: Bool {
+        self == .swift
+    }
+}
+
+private let swiftSampleCode = """
 import Foundation
 
 struct UserFormatter {
@@ -23,6 +43,18 @@ let title = ["Freewind", "LSP", "Swift"]
 print(title)
 """
 
+private let javaScriptSampleCode = """
+const renderUser = (value) => `user-${value}`
+
+const title = ["freewind", "lsp", "swift"]
+  .map(renderUser)
+  .filter((value) => value.includes("i"))
+  .join(" / ")
+  .toLowerCase()
+
+console.log(title)
+"""
+
 @main
 struct STTextViewSourceKitLSPDemoApp: App {
     init() {
@@ -39,8 +71,9 @@ struct STTextViewSourceKitLSPDemoApp: App {
 }
 
 private struct ContentView: View {
-    @State private var text = SwiftSyntaxHighlighter.highlight(sampleCode)
-    @State private var plainText = sampleCode
+    @State private var sampleKind: CodeSampleKind = .swift
+    @State private var text = SwiftSyntaxHighlighter.highlight(swiftSampleCode)
+    @State private var plainText = swiftSampleCode
     @State private var selection: NSRange? = NSRange(location: 0, length: 0)
     @State private var line = 8
     @State private var column = 10
@@ -49,15 +82,24 @@ private struct ContentView: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack {
+                Picker("代码", selection: $sampleKind) {
+                    ForEach(CodeSampleKind.allCases) { kind in
+                        Text(kind.rawValue).tag(kind)
+                    }
+                }
+                .frame(width: 150)
+                .onChange(of: sampleKind) { _, newValue in
+                    loadSample(for: newValue)
+                }
+
                 Button("加载示例") {
-                    plainText = sampleCode
-                    text = SwiftSyntaxHighlighter.highlight(sampleCode)
-                    lspClient.start(text: sampleCode)
+                    loadSample(for: sampleKind)
                 }
 
                 Button("请求补全") {
                     lspClient.requestCompletions(line: line, column: column)
                 }
+                .disabled(!sampleKind.supportsSourceKit)
 
                 Button("Duplicate 当前行 (⌘D)") {
                     duplicateCurrentLine()
@@ -143,6 +185,23 @@ private struct ContentView: View {
                 return
             }
             selection = expandedSelection
+        }
+    }
+
+    private func loadSample(for kind: CodeSampleKind) {
+        plainText = kind.sampleCode
+        text = SwiftSyntaxHighlighter.highlight(kind.sampleCode)
+        selection = NSRange(location: 0, length: 0)
+        line = 1
+        column = 1
+
+        if kind.supportsSourceKit {
+            lspClient.start(text: kind.sampleCode)
+        } else {
+            lspClient.stop()
+            lspClient.status = "当前是 JavaScript 示例，sourcekit-lsp 不支持"
+            lspClient.diagnostics = []
+            lspClient.completions = []
         }
     }
 }
