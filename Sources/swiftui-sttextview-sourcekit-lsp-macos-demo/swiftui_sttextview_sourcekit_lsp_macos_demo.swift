@@ -30,6 +30,7 @@ struct STTextViewSourceKitLSPDemoApp: App {
 private struct ContentView: View {
     @State private var text = SwiftSyntaxHighlighter.highlight(sampleCode)
     @State private var plainText = sampleCode
+    @State private var selection: NSRange? = NSRange(location: 0, length: 0)
     @State private var line = 8
     @State private var column = 10
     @StateObject private var lspClient = SourceKitLSPClient()
@@ -47,6 +48,11 @@ private struct ContentView: View {
                     lspClient.requestCompletions(line: line, column: column)
                 }
 
+                Button("Duplicate 当前行 (⌘D)") {
+                    duplicateCurrentLine()
+                }
+                .keyboardShortcut("d", modifiers: [.command])
+
                 Text(lspClient.status)
                     .foregroundStyle(.secondary)
 
@@ -56,6 +62,7 @@ private struct ContentView: View {
             HSplitView {
                 STTextViewSwiftUI.TextView(
                     text: $text,
+                    selection: $selection,
                     options: [.wrapLines, .highlightSelectedLine, .showLineNumbers]
                 )
                 .textViewFont(.monospacedSystemFont(ofSize: 14, weight: .regular))
@@ -101,6 +108,38 @@ private struct ContentView: View {
             lspClient.updateDocument(text: newPlainText)
         }
     }
+
+    private func duplicateCurrentLine() {
+        let result = duplicateCurrentLineInText(
+            in: plainText,
+            selection: selection ?? NSRange(location: 0, length: 0)
+        )
+        plainText = result.text
+        text = SwiftSyntaxHighlighter.highlight(result.text)
+        selection = result.selection
+        lspClient.updateDocument(text: result.text)
+    }
+}
+
+private func duplicateCurrentLineInText(in text: String, selection: NSRange) -> (text: String, selection: NSRange) {
+    let nsText = text as NSString
+    let location = min(selection.location, nsText.length)
+    let lineRange = nsText.lineRange(for: NSRange(location: location, length: 0))
+    let lineText = nsText.substring(with: lineRange)
+    let insertionText =
+        lineRange.upperBound == nsText.length && !lineText.hasSuffix("\n")
+        ? "\n" + lineText
+        : lineText
+    let insertedLength = (insertionText as NSString).length
+    let updatedText = nsText.replacingCharacters(
+        in: NSRange(location: lineRange.upperBound, length: 0),
+        with: insertionText
+    )
+
+    return (
+        text: updatedText,
+        selection: NSRange(location: location + insertedLength, length: selection.length)
+    )
 }
 
 private struct DiagnosticItem: Identifiable {
