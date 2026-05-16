@@ -6,6 +6,8 @@ end
 if test -z "$DEVELOPER_DIR"
     set -gx DEVELOPER_DIR /Applications/Xcode.app/Contents/Developer
 end
+set -g XCODEBUILD_BIN /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild
+set -g SWIFT_BIN /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift
 
 set -g SCRIPT_NAME (basename (status filename))
 if test -z "$TARGET_NAME"
@@ -32,6 +34,8 @@ set -g PROJECT_OPTION ""
 set -g PACKAGE_DIR ""
 set -g BUILD_SETTINGS_CACHE
 set -g PACKAGE_DUMP_CACHE
+set -g XCODE_SCHEMES_CACHE
+set -g XCODE_DESTINATION_FLAGS
 
 function errln
     printf '%s\n' $argv >&2
@@ -109,10 +113,47 @@ function sort_paths
     end | sort
 end
 
+function path_depth
+    set -l path_value (normalize_container_path "$argv[1]")
+    set -l segments (string split / -- "$path_value")
+    printf '%s\n' (count $segments)
+end
+
+function choose_shallowest_paths
+    set -l best_depth ""
+    set -l selected_paths
+    for path_value in (sort_paths $argv)
+        set -l current_depth (path_depth "$path_value")
+        if test -z "$best_depth"
+            set best_depth "$current_depth"
+            set selected_paths "$path_value"
+            continue
+        end
+        if test "$current_depth" -lt "$best_depth"
+            set selected_paths "$path_value"
+            set best_depth "$current_depth"
+            continue
+        end
+        if test "$current_depth" -eq "$best_depth"
+            set selected_paths $selected_paths "$path_value"
+        end
+    end
+    for path_value in $selected_paths
+        printf '%s\n' "$path_value"
+    end
+end
+
 function container_stem
     set -l path_value (normalize_container_path "$argv[1]")
     set -l base_name (basename "$path_value")
     string replace -r '\.(xcworkspace|xcodeproj)$' '' -- "$base_name"
+end
+
+function project_container_stem
+    if test -z "$PROJECT_FILE"
+        return 1
+    end
+    container_stem "$PROJECT_FILE"
 end
 
 function prefer_workspace_containers
@@ -229,6 +270,9 @@ function resolve_project_file
 
     if test -n "$TARGET_NAME"
         set matches (collect_named_xcode_projects "$search_root" "$TARGET_NAME")
+        if test (count $matches) -gt 1
+            set matches (choose_shallowest_paths $matches)
+        end
         if test (count $matches) -eq 1
             set_project_context "$matches[1]"; or return 1
             set -g PROJECT_FILE "$matches[1]"
@@ -242,6 +286,9 @@ function resolve_project_file
     end
 
     set matches (collect_all_xcode_projects "$search_root")
+    if test (count $matches) -gt 1
+        set matches (choose_shallowest_paths $matches)
+    end
     if test (count $matches) -eq 1
         set_project_context "$matches[1]"; or return 1
         set -g PROJECT_FILE "$matches[1]"
@@ -254,6 +301,9 @@ function resolve_project_file
     end
 
     set matches (collect_package_specs "$search_root")
+    if test (count $matches) -gt 1
+        set matches (choose_shallowest_paths $matches)
+    end
     if test (count $matches) -eq 1
         set_project_context "$matches[1]"; or return 1
         set -g PROJECT_FILE "$matches[1]"
@@ -266,6 +316,9 @@ function resolve_project_file
     end
 
     set matches (collect_project_specs "$search_root")
+    if test (count $matches) -gt 1
+        set matches (choose_shallowest_paths $matches)
+    end
     if test (count $matches) -eq 1
         set project_spec "$matches[1]"
         xcodegen generate --spec "$project_spec"; or return 1
@@ -274,6 +327,9 @@ function resolve_project_file
             set matches (collect_named_xcode_projects "$search_root" "$TARGET_NAME")
         else
             set matches (collect_all_xcode_projects "$search_root")
+        end
+        if test (count $matches) -gt 1
+            set matches (choose_shallowest_paths $matches)
         end
         if test (count $matches) -eq 1
             set_project_context "$matches[1]"; or return 1
@@ -301,7 +357,7 @@ end
 function refresh_package_dump
     set -g PACKAGE_DUMP_CACHE (begin
         cd "$PACKAGE_DIR"
-        env DEVELOPER_DIR="$DEVELOPER_DIR" swift package dump-package 2>/dev/null
+        env DEVELOPER_DIR="$DEVELOPER_DIR" "$SWIFT_BIN" package dump-package 2>/dev/null
     end)
 end
 
@@ -321,6 +377,27 @@ function package_name_exists
     ' >/dev/null 2>&1
 end
 
+function refresh_xcode_schemes
+    if test "$PROJECT_KIND" != xcode
+        set -g XCODE_SCHEMES_CACHE
+        return 1
+    end
+    set -g XCODE_SCHEMES_CACHE ("$XCODEBUILD_BIN" $PROJECT_OPTION "$PROJECT_FILE" -list -json 2>/dev/null)
+end
+
+function xcode_scheme_exists
+    set -l scheme "$argv[1]"
+    if test -z "$scheme"
+        return 1
+    end
+    if test (count $XCODE_SCHEMES_CACHE) -eq 0
+        refresh_xcode_schemes; or return 1
+    end
+    printf '%s\n' $XCODE_SCHEMES_CACHE | jq -e --arg scheme "$scheme" '
+      (.workspace.schemes // .project.schemes // []) | index($scheme) != null
+    ' >/dev/null 2>&1
+end
+
 function scheme_exists
     set -l scheme "$argv[1]"
     if test -z "$scheme"
@@ -331,7 +408,29 @@ function scheme_exists
         return $status
     end
 
-    xcodebuild $PROJECT_OPTION "$PROJECT_FILE" -scheme "$scheme" -configuration "$CONFIGURATION" -showBuildSettings >/dev/null 2>&1
+    xcode_scheme_exists "$scheme"
+end
+
+function resolve_default_xcode_scheme
+    set -l candidate_names
+    set -l container_name (project_container_stem)
+    if test -n "$container_name"
+        set candidate_names $candidate_names "$container_name"
+    end
+
+    set -l root_name (basename "$ROOT_DIR")
+    if test -n "$root_name"; and not contains -- "$root_name" $candidate_names
+        set candidate_names $candidate_names "$root_name"
+    end
+
+    for candidate_name in $candidate_names
+        if xcode_scheme_exists "$candidate_name"
+            printf '%s\n' "$candidate_name"
+            return 0
+        end
+    end
+
+    return 1
 end
 
 function resolve_scheme_name
@@ -371,9 +470,17 @@ function resolve_scheme_name
         return 1
     end
 
-    set -l schemes_json (xcodebuild $PROJECT_OPTION "$PROJECT_FILE" -list -json 2>/dev/null; or true)
-    set -l fallback_scheme (printf '%s\n' $schemes_json | jq -r '(.workspace.schemes // .project.schemes // [])[0] // empty')
-    set -l scheme_count (printf '%s\n' $schemes_json | jq -r '(.workspace.schemes // .project.schemes // []) | length')
+    set -l fallback_scheme (resolve_default_xcode_scheme)
+    if test $status -eq 0 -a -n "$fallback_scheme"
+        printf '%s\n' "$fallback_scheme"
+        return 0
+    end
+
+    if test (count $XCODE_SCHEMES_CACHE) -eq 0
+        refresh_xcode_schemes; or true
+    end
+    set -l fallback_scheme (printf '%s\n' $XCODE_SCHEMES_CACHE | jq -r '(.workspace.schemes // .project.schemes // [])[0] // empty')
+    set -l scheme_count (printf '%s\n' $XCODE_SCHEMES_CACHE | jq -r '(.workspace.schemes // .project.schemes // []) | length')
     if test "$scheme_count" = 1 -a -n "$fallback_scheme"
         printf '%s\n' "$fallback_scheme"
         return 0
@@ -388,8 +495,74 @@ function generate_project
     set -g SCHEME_NAME (resolve_scheme_name); or return 1
 end
 
+function try_xcode_destination
+    set -l args $argv
+    set -l output ("$XCODEBUILD_BIN" $PROJECT_OPTION "$PROJECT_FILE" -scheme "$SCHEME_NAME" -configuration "$CONFIGURATION" $args -showBuildSettings 2>&1)
+    if test $status -eq 0
+        set -g XCODE_DESTINATION_FLAGS $args
+        return 0
+    end
+    return 1
+end
+
+function explain_missing_xcode_destination
+    set -l destinations_output ("$XCODEBUILD_BIN" $PROJECT_OPTION "$PROJECT_FILE" -scheme "$SCHEME_NAME" -showdestinations 2>&1)
+    if string match -q '*is not installed*' -- $destinations_output
+        errln 'Missing Apple platform component for current scheme.'
+        errln 'Install it in Xcode > Settings > Components.'
+        printf '%s\n' $destinations_output >&2
+        return 1
+    end
+    if string match -q '*Ineligible destinations*' -- $destinations_output
+        errln 'No usable destination for current scheme.'
+        printf '%s\n' $destinations_output >&2
+        return 1
+    end
+    errln 'Missing destination for current scheme.'
+    printf '%s\n' $destinations_output >&2
+    return 1
+end
+
+function resolve_xcode_destination
+    if test "$PROJECT_KIND" != xcode
+        return 0
+    end
+    if test (count $XCODE_DESTINATION_FLAGS) -gt 0
+        return 0
+    end
+    if try_xcode_destination -destination 'generic/platform=macOS'
+        return 0
+    end
+    if try_xcode_destination -destination 'generic/platform=iOS'
+        return 0
+    end
+    if try_xcode_destination -destination 'generic/platform=iOS Simulator'
+        return 0
+    end
+    if try_xcode_destination -destination 'generic/platform=tvOS'
+        return 0
+    end
+    if try_xcode_destination -destination 'generic/platform=tvOS Simulator'
+        return 0
+    end
+    if try_xcode_destination -destination 'generic/platform=watchOS'
+        return 0
+    end
+    if try_xcode_destination -destination 'generic/platform=watchOS Simulator'
+        return 0
+    end
+    if try_xcode_destination -destination 'generic/platform=visionOS'
+        return 0
+    end
+    if try_xcode_destination -destination 'generic/platform=visionOS Simulator'
+        return 0
+    end
+    explain_missing_xcode_destination
+end
+
 function fetch_build_settings
-    xcodebuild $PROJECT_OPTION "$PROJECT_FILE" -scheme "$SCHEME_NAME" -configuration "$CONFIGURATION" -showBuildSettings 2>/dev/null
+    resolve_xcode_destination; or return 1
+    "$XCODEBUILD_BIN" $PROJECT_OPTION "$PROJECT_FILE" -scheme "$SCHEME_NAME" -configuration "$CONFIGURATION" $XCODE_DESTINATION_FLAGS -showBuildSettings 2>/dev/null
 end
 
 function refresh_build_settings
@@ -405,6 +578,14 @@ function read_build_setting
         end
     end
     return 1
+end
+
+function resolve_process_name
+    if test "$PROJECT_KIND" = swiftpm
+        printf '%s\n' "$SCHEME_NAME"
+        return 0
+    end
+    read_build_setting EXECUTABLE_NAME
 end
 
 function resolve_swiftpm_binary_path
@@ -537,7 +718,7 @@ end
 function build_product
     printf '\n==> Building %s (%s)\n' "$SCHEME_NAME" "$CONFIGURATION"
     if test "$PROJECT_KIND" = swiftpm
-        env DEVELOPER_DIR="$DEVELOPER_DIR" swift build --package-path "$PACKAGE_DIR" -c (resolve_swiftpm_configuration) --product "$SCHEME_NAME" | tee "$BUILD_LOG_PATH"
+        env DEVELOPER_DIR="$DEVELOPER_DIR" "$SWIFT_BIN" build --package-path "$PACKAGE_DIR" -c (resolve_swiftpm_configuration) --product "$SCHEME_NAME" | tee "$BUILD_LOG_PATH"
         set -l cmd_status $pipestatus[1]
         if test $cmd_status -ne 0
             errln 'Build failed.'
@@ -547,7 +728,8 @@ function build_product
         return 0
     end
 
-    xcodebuild $PROJECT_OPTION "$PROJECT_FILE" -scheme "$SCHEME_NAME" -configuration "$CONFIGURATION" build | tee "$BUILD_LOG_PATH"
+    resolve_xcode_destination; or return 1
+    "$XCODEBUILD_BIN" $PROJECT_OPTION "$PROJECT_FILE" -scheme "$SCHEME_NAME" -configuration "$CONFIGURATION" $XCODE_DESTINATION_FLAGS build | tee "$BUILD_LOG_PATH"
     set -l cmd_status $pipestatus[1]
     if test $cmd_status -ne 0
         errln 'Build failed.'
@@ -568,12 +750,12 @@ function reveal_product
     set -l linked_path ""
     if test "$PROJECT_KIND" = swiftpm
         set linked_path "$product_path"
-        open -R "$product_path"
     else
         set linked_path "$BUILD_DIR/"(basename "$product_path")
         ln -sfn "$product_path" "$linked_path"
-        open (dirname "$product_path")
     end
+
+    open -R "$linked_path"
 
     printf 'Root: %s\n' "$ROOT_DIR"
     if test "$PROJECT_KIND" = swiftpm
@@ -585,6 +767,11 @@ function reveal_product
     printf 'Product: %s\n' "$product_path"
     printf 'Shortcut: %s\n' "$linked_path"
     printf 'Build log: %s\n' "$BUILD_LOG_PATH"
+
+    set -l process_name (resolve_process_name)
+    if test -n "$process_name"; and pgrep -x "$process_name" >/dev/null 2>&1
+        errln "Note: $process_name is still running. This script only builds/reveals; it does not relaunch the app."
+    end
 end
 
 mkdir -p "$BUILD_DIR"
