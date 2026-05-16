@@ -371,10 +371,39 @@ function package_name_exists
     end
     printf '%s\n' $PACKAGE_DUMP_CACHE | jq -e --arg name "$name" '
       [
-        ((.products // [])[]? | select(.type.executable != null) | .name),
+        ((.products // [])[]? | select(.type | has("executable")) | .name),
         ((.targets // [])[]? | select(.type == "executable") | .name)
       ] | index($name) != null
     ' >/dev/null 2>&1
+end
+
+function resolve_swiftpm_product_name
+    set -l name "$argv[1]"
+    if test -z "$name"
+        return 1
+    end
+    if test (count $PACKAGE_DUMP_CACHE) -eq 0
+        refresh_package_dump; or return 1
+    end
+
+    set -l resolved_name (printf '%s\n' $PACKAGE_DUMP_CACHE | jq -r --arg name "$name" '
+      def executable_products:
+        (.products // []) | map(select(.type | has("executable")));
+
+      if (executable_products | map(.name) | index($name)) != null then
+        [$name]
+      else
+        [executable_products[]? | select((.targets // []) | index($name) != null) | .name] | unique
+      end
+      | if length == 1 then .[0] else empty end
+    ')
+
+    if test -n "$resolved_name"
+        printf '%s\n' "$resolved_name"
+        return 0
+    end
+
+    return 1
 end
 
 function refresh_xcode_schemes
@@ -434,6 +463,38 @@ function resolve_default_xcode_scheme
 end
 
 function resolve_scheme_name
+    if test "$PROJECT_KIND" = swiftpm
+        if test -n "$SCHEME_NAME"
+            set -l explicit_product (resolve_swiftpm_product_name "$SCHEME_NAME")
+            if test $status -eq 0 -a -n "$explicit_product"
+                printf '%s\n' "$explicit_product"
+                return 0
+            end
+        end
+        if test -n "$TARGET_NAME"
+            set -l target_product (resolve_swiftpm_product_name "$TARGET_NAME")
+            if test $status -eq 0 -a -n "$target_product"
+                printf '%s\n' "$target_product"
+                return 0
+            end
+        end
+        if test (count $PACKAGE_DUMP_CACHE) -eq 0
+            refresh_package_dump; or return 1
+        end
+        set -l fallback_name (printf '%s\n' $PACKAGE_DUMP_CACHE | jq -r '
+          [(.products // [])[]? | select(.type | has("executable")) | .name] | unique | .[0] // empty
+        ')
+        set -l name_count (printf '%s\n' $PACKAGE_DUMP_CACHE | jq -r '
+          [(.products // [])[]? | select(.type | has("executable")) | .name] | unique | length
+        ')
+        if test "$name_count" = 1 -a -n "$fallback_name"
+            printf '%s\n' "$fallback_name"
+            return 0
+        end
+        errln 'Missing executable product. Set SCHEME_NAME or TARGET_NAME.'
+        return 1
+    end
+
     if scheme_exists "$SCHEME_NAME"
         printf '%s\n' "$SCHEME_NAME"
         return 0
@@ -444,30 +505,6 @@ function resolve_scheme_name
             printf '%s\n' "$TARGET_NAME"
             return 0
         end
-    end
-
-    if test "$PROJECT_KIND" = swiftpm
-        if test (count $PACKAGE_DUMP_CACHE) -eq 0
-            refresh_package_dump; or return 1
-        end
-        set -l fallback_name (printf '%s\n' $PACKAGE_DUMP_CACHE | jq -r '
-          [
-            ((.products // [])[]? | select(.type.executable != null) | .name),
-            ((.targets // [])[]? | select(.type == "executable") | .name)
-          ] | unique | .[0] // empty
-        ')
-        set -l name_count (printf '%s\n' $PACKAGE_DUMP_CACHE | jq -r '
-          [
-            ((.products // [])[]? | select(.type.executable != null) | .name),
-            ((.targets // [])[]? | select(.type == "executable") | .name)
-          ] | unique | length
-        ')
-        if test "$name_count" = 1 -a -n "$fallback_name"
-            printf '%s\n' "$fallback_name"
-            return 0
-        end
-        errln 'Missing executable product. Set SCHEME_NAME or TARGET_NAME.'
-        return 1
     end
 
     set -l fallback_scheme (resolve_default_xcode_scheme)
