@@ -4,7 +4,7 @@ if test -z "$ROOT_DIR"
     set -gx ROOT_DIR (pwd)
 end
 if test -z "$DEVELOPER_DIR"
-    set -gx DEVELOPER_DIR /System/Volumes/Data/Applications/Xcode.app/Contents/Developer
+    set -gx DEVELOPER_DIR /Applications/Xcode.app/Contents/Developer
 end
 
 set -g SCRIPT_NAME (basename (status filename))
@@ -72,6 +72,100 @@ function print_matches
     end
 end
 
+function normalize_container_path
+    set -l path_value "$argv[1]"
+    string replace -r '/+$' '' -- "$path_value"
+end
+
+function path_is_nested_in
+    set -l path_value (normalize_container_path "$argv[1]")
+    set -l parent_path (normalize_container_path "$argv[2]")
+    string match -qr '^'(string escape --style=regex "$parent_path")'/+' -- "$path_value"
+end
+
+function prefer_outermost_xcode_containers
+    set -l selected_paths
+    for raw_path in $argv
+        set -l path_value (normalize_container_path "$raw_path")
+        set -l skip_path 0
+        for chosen_path in $selected_paths
+            if path_is_nested_in "$path_value" "$chosen_path"
+                set skip_path 1
+                break
+            end
+        end
+        if test $skip_path -eq 1
+            continue
+        end
+
+        set -l next_selected
+        for chosen_path in $selected_paths
+            if not path_is_nested_in "$chosen_path" "$path_value"
+                set next_selected $next_selected "$chosen_path"
+            end
+        end
+        set selected_paths $next_selected "$path_value"
+    end
+
+    for path_value in $selected_paths
+        printf '%s\n' "$path_value"
+    end
+end
+
+function sort_paths
+    for path_value in $argv
+        printf '%s\n' "$path_value"
+    end | sort
+end
+
+function container_stem
+    set -l path_value (normalize_container_path "$argv[1]")
+    set -l base_name (basename "$path_value")
+    string replace -r '\.(xcworkspace|xcodeproj)$' '' -- "$base_name"
+end
+
+function prefer_workspace_containers
+    set -l selected_paths
+    for raw_path in $argv
+        set -l path_value (normalize_container_path "$raw_path")
+        set -l parent_dir (dirname "$path_value")
+        set -l stem_name (container_stem "$path_value")
+        set -l path_kind generic
+        switch "$path_value"
+            case '*.xcworkspace'
+                set path_kind workspace
+            case '*.xcodeproj'
+                set path_kind project
+        end
+
+        set -l replaced 0
+        set -l next_selected
+        for chosen_path in $selected_paths
+            if test "$parent_dir" = (dirname "$chosen_path"); and test "$stem_name" = (container_stem "$chosen_path")
+                if test "$path_kind" = workspace
+                    set next_selected $next_selected "$path_value"
+                else
+                    set next_selected $next_selected "$chosen_path"
+                end
+                set replaced 1
+                continue
+            end
+            set next_selected $next_selected "$chosen_path"
+        end
+
+        if test $replaced -eq 1
+            set selected_paths $next_selected
+            continue
+        end
+
+        set selected_paths $selected_paths "$path_value"
+    end
+
+    for path_value in $selected_paths
+        printf '%s\n' "$path_value"
+    end
+end
+
 function set_project_context
     set -l project_path "$argv[1]"
     switch "$project_path"
@@ -96,18 +190,24 @@ end
 function collect_named_xcode_projects
     set -l root "$argv[1]"
     set -l name "$argv[2]"
-    begin
+    set -l raw_matches (begin
         fd -HI -a -t d -g "$name.xcworkspace" "$root" --exclude .git --exclude build --exclude DerivedData --exclude .build
         fd -HI -a -t d -g "$name.xcodeproj" "$root" --exclude .git --exclude build --exclude DerivedData --exclude .build
-    end
+    end)
+    set -l sorted_matches (sort_paths $raw_matches)
+    set -l outermost_matches (prefer_outermost_xcode_containers $sorted_matches)
+    prefer_workspace_containers $outermost_matches
 end
 
 function collect_all_xcode_projects
     set -l root "$argv[1]"
-    begin
+    set -l raw_matches (begin
         fd -HI -a -t d -g '*.xcworkspace' "$root" --exclude .git --exclude build --exclude DerivedData --exclude .build
         fd -HI -a -t d -g '*.xcodeproj' "$root" --exclude .git --exclude build --exclude DerivedData --exclude .build
-    end
+    end)
+    set -l sorted_matches (sort_paths $raw_matches)
+    set -l outermost_matches (prefer_outermost_xcode_containers $sorted_matches)
+    prefer_workspace_containers $outermost_matches
 end
 
 function collect_package_specs
