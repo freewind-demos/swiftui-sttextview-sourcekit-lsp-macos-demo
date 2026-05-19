@@ -1,0 +1,40 @@
+name: swiftui_sttextview_sourcekit_lsp_macos_demo
+options:
+  bundleIdPrefix: com.freewind
+  deploymentTarget:
+    macOS: "14.0"
+packages:
+  STTextView:
+    url: https://github.com/krzyzanowskim/STTextView
+    from: 2.3.10
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+targets:
+  swiftui_sttextview_sourcekit_lsp_macos_demo:
+    type: application
+    platform: macOS
+    productName: swiftui_sttextview_sourcekit_lsp_macos_demo
+    sources:
+      - Sources
+    dependencies:
+      - package: STTextView
+        product: STTextView
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.freewind.swiftuisttextviewsourcekitlspmacosdemo
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: ""
+        ENABLE_HARDENED_RUNTIME: NO
+    scheme:
+      testTargets: []
+schemes:
+  swiftui_sttextview_sourcekit_lsp_macos_demo:
+    build:
+      targets:
+        swiftui_sttextview_sourcekit_lsp_macos_demo: all
+    run:
+      config: Debug
