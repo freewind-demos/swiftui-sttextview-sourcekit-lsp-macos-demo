@@ -81,7 +81,8 @@ function parse_args
     set -g SHOULD_OPEN 1
 
     while test (count $argv) -gt 0
-        switch "$argv[1]"
+        set -l arg_lower (string lower -- "$argv[1]")
+        switch "$arg_lower"
             case debug d release r build
                 set -g CONFIGURATION (resolve_configuration "$argv[1]"); or return 1
                 set argv $argv[2..-1]
@@ -122,6 +123,7 @@ function parse_args
                 end
         end
     end
+    return 0
 end
 
 function yaml_scalar
@@ -340,19 +342,19 @@ end
 
 function write_meta
     begin
-        printf 'ROOT_DIR=%s\n' (string escape -- "$ROOT_DIR")
-        printf 'PROJECT_SPEC=%s\n' (string escape -- "$PROJECT_SPEC")
-        printf 'PROJECT_FILE=%s\n' (string escape -- "$PROJECT_FILE")
-        printf 'PROJECT_NAME=%s\n' (string escape -- "$PROJECT_NAME")
-        printf 'SCHEME_NAME=%s\n' (string escape -- "$SCHEME_NAME")
-        printf 'APP_TARGET_NAME=%s\n' (string escape -- "$APP_TARGET_NAME")
-        printf 'PRODUCT_NAME=%s\n' (string escape -- "$PRODUCT_NAME")
-        printf 'CONFIGURATION=%s\n' (string escape -- "$CONFIGURATION")
-        printf 'OUTPUT_ROOT=%s\n' (string escape -- "$OUTPUT_ROOT")
-        printf 'DERIVED_DATA_DIR=%s\n' (string escape -- "$DERIVED_DATA_DIR")
-        printf 'PRODUCT_DIR=%s\n' (string escape -- "$PRODUCT_DIR")
-        printf 'PRODUCT_PATH=%s\n' (string escape -- "$PRODUCT_PATH")
-        printf 'BUILD_LOG_PATH=%s\n' (string escape -- "$BUILD_LOG_PATH")
+        printf 'set -gx ROOT_DIR %s\n' (string escape -- "$ROOT_DIR")
+        printf 'set -gx PROJECT_SPEC %s\n' (string escape -- "$PROJECT_SPEC")
+        printf 'set -gx PROJECT_FILE %s\n' (string escape -- "$PROJECT_FILE")
+        printf 'set -gx PROJECT_NAME %s\n' (string escape -- "$PROJECT_NAME")
+        printf 'set -gx SCHEME_NAME %s\n' (string escape -- "$SCHEME_NAME")
+        printf 'set -gx APP_TARGET_NAME %s\n' (string escape -- "$APP_TARGET_NAME")
+        printf 'set -gx PRODUCT_NAME %s\n' (string escape -- "$PRODUCT_NAME")
+        printf 'set -gx CONFIGURATION %s\n' (string escape -- "$CONFIGURATION")
+        printf 'set -gx OUTPUT_ROOT %s\n' (string escape -- "$OUTPUT_ROOT")
+        printf 'set -gx DERIVED_DATA_DIR %s\n' (string escape -- "$DERIVED_DATA_DIR")
+        printf 'set -gx PRODUCT_DIR %s\n' (string escape -- "$PRODUCT_DIR")
+        printf 'set -gx PRODUCT_PATH %s\n' (string escape -- "$PRODUCT_PATH")
+        printf 'set -gx BUILD_LOG_PATH %s\n' (string escape -- "$BUILD_LOG_PATH")
     end > "$BUILD_META_PATH"
 end
 

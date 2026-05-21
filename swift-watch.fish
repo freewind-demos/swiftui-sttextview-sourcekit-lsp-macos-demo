@@ -21,6 +21,27 @@ set -g PRODUCT_PATH ""
 set -g PRODUCT_NAME ""
 set -g APP_LOG_PATH ""
 
+function print_help
+    printf '%s\n' \
+        "用法: ./$SCRIPT_NAME [debug|release] [--project PATH] [--scheme NAME] [--target NAME] [--help]" \
+        "" \
+        "作用:" \
+        "  监听 Swift 项目变更，重编译并重启 app" \
+        "" \
+        "参数:" \
+        "  debug|d            Debug 构建，默认" \
+        "  release|r|build    Release 构建" \
+        "  --project PATH     指定 xcodeproj / xcworkspace / 目录" \
+        "  --scheme NAME      指定 scheme" \
+        "  --target NAME      指定 target" \
+        "  --help, -h         输出帮助" \
+        "" \
+        "默认行为:" \
+        "  调用 swift-build.fish --no-open" \
+        "  读取 build/out/meta.env" \
+        "  检测变更后自动重编译重启"
+end
+
 function errln
     printf '%s\n' $argv >&2
 end
@@ -33,7 +54,7 @@ function resolve_configuration
             printf 'Release\n'
         case '*'
             errln "不支持的模式: $argv[1]"
-            errln "用法: ./$SCRIPT_NAME [debug|release] [--project 路径] [--scheme 名称] [--target 名称]"
+            print_help >&2
             return 1
     end
 end
@@ -46,6 +67,9 @@ function parse_args
 
     while test (count $argv) -gt 0
         switch "$argv[1]"
+            case --help -h
+                print_help
+                exit 0
             case debug d release r build
                 set -g CONFIGURATION (resolve_configuration "$argv[1]"); or return 1
                 set argv $argv[2..-1]
@@ -75,7 +99,7 @@ function parse_args
                     set -g PROJECT_SPEC_ARG "$argv[1]"
                     set argv $argv[2..-1]
                 else
-                    errln "用法: ./$SCRIPT_NAME [debug|release] [--project 路径] [--scheme 名称] [--target 名称]"
+                    print_help >&2
                     return 1
                 end
         end
