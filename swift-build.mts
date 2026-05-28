@@ -45,25 +45,22 @@ function requireOnPath(name: string) {
 
 function resolveConfiguration(value: string) {
   const v = value.toLowerCase()
-  if (v === 'debug' || v === 'd') return 'Debug'
-  if (v === 'release' || v === 'r' || v === 'build' || v === 'production' || v === 'prod' || v === 'p') {
-    return 'Release'
-  }
+  if (v === 'debug') return 'Debug'
+  if (v === 'release') return 'Release'
   errln(`不支持的模式: ${value}`)
   printHelp()
   process.exit(1)
 }
 
 function printHelp() {
-  console.log(`用法: bun ${SCRIPT_NAME} [debug|release|production] [选项]
+  console.log(`用法: bun ${SCRIPT_NAME} [debug|release] [选项]
 
 配置:
-  debug | d                 Debug 构建（默认）
-  release | r | build       Release 构建
-  production | prod | p     Release 构建（同 release）
+  debug                     Debug 构建（默认）
+  release                   Release 构建
 
 选项:
-  -c, --configuration, --config <模式>  构建配置（同上）
+  -c, --configuration, --config <模式>  构建配置：debug 或 release
   --project <路径>                      project.yml 路径
   --scheme <名称>                       Xcode scheme
   --target <名称>                       application target
@@ -74,7 +71,7 @@ function printHelp() {
 示例:
   bun ${SCRIPT_NAME}
   bun ${SCRIPT_NAME} release --no-open
-  bun ${SCRIPT_NAME} --configuration production
+  bun ${SCRIPT_NAME} --configuration release
   bun ${SCRIPT_NAME} -c debug --scheme freewind_paste`)
 }
 
@@ -103,7 +100,7 @@ function parseArgs(argv: string[]) {
       i += 1
       continue
     }
-    if (['debug', 'd', 'release', 'r', 'build', 'production', 'prod', 'p'].includes(lower)) {
+    if (lower === 'debug' || lower === 'release') {
       configuration = resolveConfiguration(arg)
       i += 1
       continue
@@ -209,7 +206,7 @@ if (parsed.projectSpecArg) {
   if (matches.length > 1) {
     errln(`配置错误 ${ROOT_DIR} :: project.yml -> 找到多个文件`)
     for (const m of matches) errln(`  ${m}`)
-    errln(`请显式指定: bun ${SCRIPT_NAME} [debug|release|production] --project <project.yml 路径>`)
+    errln(`请显式指定: bun ${SCRIPT_NAME} [debug|release] --project <project.yml 路径>`)
     process.exit(1)
   }
   projectSpec = matches[0]
@@ -232,7 +229,7 @@ if (parsed.schemeArg) {
 } else {
   errln(`配置错误 ${projectSpec} :: .schemes -> 找到多个 scheme`)
   for (const s of schemeNames) errln(`  ${s}`)
-  errln(`请显式指定: bun ${SCRIPT_NAME} [debug|release|production] --scheme <scheme 名称>`)
+  errln(`请显式指定: bun ${SCRIPT_NAME} [debug|release] --scheme <scheme 名称>`)
   process.exit(1)
 }
 
@@ -250,7 +247,7 @@ if (parsed.targetArg) {
 } else {
   errln(`配置错误 ${projectSpec} :: .targets -> 找到多个 application target`)
   for (const t of applicationTargetNames) errln(`  ${t}`)
-  errln(`请显式指定: bun ${SCRIPT_NAME} [debug|release|production] --target <target 名称>`)
+  errln(`请显式指定: bun ${SCRIPT_NAME} [debug|release] --target <target 名称>`)
   process.exit(1)
 }
 

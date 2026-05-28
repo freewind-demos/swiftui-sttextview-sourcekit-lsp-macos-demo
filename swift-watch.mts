@@ -27,25 +27,22 @@ function isAppBundle(path: string) {
 
 function resolveConfiguration(value: string) {
   const v = value.toLowerCase()
-  if (v === 'debug' || v === 'd') return 'Debug'
-  if (v === 'release' || v === 'r' || v === 'build' || v === 'production' || v === 'prod' || v === 'p') {
-    return 'Release'
-  }
+  if (v === 'debug') return 'Debug'
+  if (v === 'release') return 'Release'
   errln(`不支持的模式: ${value}`)
   printHelp()
   process.exit(1)
 }
 
 function printHelp() {
-  console.log(`用法: bun swift-watch.mts [debug|release|production] [选项]
+  console.log(`用法: bun swift-watch.mts [debug|release] [选项]
 
 配置:
-  debug | d                 Debug 构建（默认）
-  release | r | build       Release 构建
-  production | prod | p     Release 构建（同 release）
+  debug                     Debug 构建（默认）
+  release                   Release 构建
 
 选项:
-  -c, --configuration, --config <模式>  构建配置（同上）
+  -c, --configuration, --config <模式>  构建配置：debug 或 release
   --project <路径>                      project.yml 路径
   --scheme <名称>                       Xcode scheme
   --target <名称>                       application target
@@ -76,7 +73,7 @@ function parseArgs(argv: string[]) {
       i += 1
       continue
     }
-    if (['debug', 'd', 'release', 'r', 'build', 'production', 'prod', 'p'].includes(lower)) {
+    if (lower === 'debug' || lower === 'release') {
       configuration = resolveConfiguration(arg)
       i += 1
       continue
