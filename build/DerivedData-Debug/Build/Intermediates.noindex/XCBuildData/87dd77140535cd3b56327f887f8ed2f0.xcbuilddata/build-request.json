@@ -1,0 +1,64 @@
+{
+  "buildCommand" : {
+    "command" : "build",
+    "skipDependencies" : false,
+    "style" : "buildOnly"
+  },
+  "configuredTargets" : [
+    {
+      "guid" : "80cb6823737d5cb518a1bdd31ad3a97c2e3f9ff0ce2f3abda62c5c1c89bcb774"
+    }
+  ],
+  "containerPath" : "/Users/peng.li/workspace/freewind-demos/swiftui-sttextview-sourcekit-lsp-macos-demo/swiftui_sttextview_sourcekit_lsp_macos_demo.xcodeproj",
+  "continueBuildingAfterErrors" : false,
+  "dependencyScope" : "workspace",
+  "enableIndexBuildArena" : false,
+  "hideShellScriptEnvironment" : false,
+  "parameters" : {
+    "action" : "build",
+    "activeArchitecture" : "x86_64",
+    "activeRunDestination" : {
+      "disableOnlyActiveArch" : false,
+      "platform" : "macosx",
+      "sdk" : "macosx15.2",
+      "sdkVariant" : "macos",
+      "supportedArchitectures" : [
+        "x86_64h",
+        "x86_64"
+      ],
+      "targetArchitecture" : "x86_64"
+    },
+    "arenaInfo" : {
+      "buildIntermediatesPath" : "/Users/peng.li/workspace/freewind-demos/swiftui-sttextview-sourcekit-lsp-macos-demo/build/DerivedData-Debug/Build/Intermediates.noindex",
+      "buildProductsPath" : "/Users/peng.li/workspace/freewind-demos/swiftui-sttextview-sourcekit-lsp-macos-demo/build/DerivedData-Debug/Build/Products",
+      "derivedDataPath" : "/Users/peng.li/workspace/freewind-demos/swiftui-sttextview-sourcekit-lsp-macos-demo/build/DerivedData-Debug",
+      "indexDataStoreFolderPath" : "/Users/peng.li/workspace/freewind-demos/swiftui-sttextview-sourcekit-lsp-macos-demo/build/DerivedData-Debug/Index.noindex/DataStore",
+      "indexEnableDataStore" : true,
+      "indexPCHPath" : "/Users/peng.li/workspace/freewind-demos/swiftui-sttextview-sourcekit-lsp-macos-demo/build/DerivedData-Debug/Index.noindex/PrecompiledHeaders",
+      "pchPath" : "/Users/peng.li/workspace/freewind-demos/swiftui-sttextview-sourcekit-lsp-macos-demo/build/DerivedData-Debug/Build/Intermediates.noindex/PrecompiledHeaders"
+    },
+    "configurationName" : "Debug",
+    "overrides" : {
+      "commandLine" : {
+        "table" : {
+          "CODE_SIGN_IDENTITY" : "-",
+          "CODE_SIGNING_ALLOWED" : "NO",
+          "CODE_SIGNING_REQUIRED" : "NO"
+        }
+      },
+      "synthesized" : {
+        "table" : {
+          "ACTION" : "build",
+          "ENABLE_PREVIEWS" : "NO",
+          "ENABLE_XOJIT_PREVIEWS" : "YES"
+        }
+      }
+    }
+  },
+  "schemeCommand" : "launch",
+  "showNonLoggedProgress" : true,
+  "useDryRun" : false,
+  "useImplicitDependencies" : true,
+  "useLegacyBuildLocations" : false,
+  "useParallelTargets" : true
+}
